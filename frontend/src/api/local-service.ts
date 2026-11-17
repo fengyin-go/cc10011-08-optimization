@@ -1,5 +1,6 @@
 import { MODULE_BY_KEY } from '@/data/modules'
 import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
+import { spiderActionEffect } from '@/api/resume-service'
 import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
 
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
@@ -43,6 +44,15 @@ export function runAction(key: string, id: number, action: string): ActionResult
   if (current === target) {
     return { ok: false, message: `${meta.entity}已经是「${target}」，不用重复操作` }
   }
+  // 任务编排（采集作业）的断点续跑、额度预留与中断保留由恢复服务接管，可否决本次流转
+  let effectNote = ''
+  if (key === 'spider') {
+    const effect = spiderActionEffect(action, rows[index])
+    if (!effect.ok) {
+      return { ok: false, message: effect.note }
+    }
+    effectNote = effect.note
+  }
   const lastStatus = meta.statuses[meta.statuses.length - 1]
   const updated: EntryRow = {
     ...rows[index],
@@ -53,7 +63,7 @@ export function runAction(key: string, id: number, action: string): ActionResult
   const next = [...rows]
   next[index] = updated
   saveRows(key, next)
-  return { ok: true, message: `${meta.entity}已${action}，当前状态「${target}」` }
+  return { ok: true, message: `${meta.entity}已${action}，当前状态「${target}」${effectNote ? `；${effectNote}` : ''}` }
 }
 
 export function resetModule(key: string): PageResult {
